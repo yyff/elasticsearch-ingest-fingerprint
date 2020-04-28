@@ -19,22 +19,22 @@
 
 package org.elasticsearch.ingest.fingerprint;
 
-import org.elasticsearch.ingest.IngestDocument;
-import org.elasticsearch.ingest.RandomDocumentPicks;
-import org.elasticsearch.test.ESTestCase;
+import static org.hamcrest.Matchers.equalTo;
 
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-import static org.hamcrest.Matchers.equalTo;
+import org.elasticsearch.ingest.IngestDocument;
+import org.elasticsearch.ingest.RandomDocumentPicks;
+import org.elasticsearch.test.ESTestCase;
 
 public class FingerprintProcessorTests extends ESTestCase {
 
     private FingerprintProcessor processor;
 
-    public void testMD5() {
+    public void testDefault() {
         Set<String> fields = new HashSet<>();
         fields.add("_field");
         processor = new FingerprintProcessor(randomAlphaOfLength(10), fields, "fingerprint",
@@ -44,6 +44,36 @@ public class FingerprintProcessorTests extends ESTestCase {
         IngestDocument oldDoc = RandomDocumentPicks.randomIngestDocument(random(), document);
         IngestDocument newDoc = processor.execute(oldDoc);
         assertEquals("a0a003767ebde642b4d908ef7417d8e5", newDoc.getFieldValue("fingerprint", String.class));
+    }
+
+    public void testMultiFields() {
+        Set<String> fields = new HashSet<>();
+        int numFields = 100;
+        for (int i = 0; i < numFields; i++) {
+            fields.add("_field" + i);
+        }
+        processor = new FingerprintProcessor(randomAlphaOfLength(10), fields, "fingerprint",
+                FingerprintProcessor.Method.MD5, true, false, false);
+        Map<String, Object> document = new HashMap<>();
+        for (int i = 0; i < numFields; i++) {
+            document.put("_field" + i, "test content" + i);
+        }
+        IngestDocument oldDoc = RandomDocumentPicks.randomIngestDocument(random(), document);
+        IngestDocument newDoc = processor.execute(oldDoc);
+        assertEquals("WuSUaVpCeHF2PG2cx+nxGg==", newDoc.getFieldValue("fingerprint", String.class));
+    }
+
+    public void testUUID() {
+        processor = new FingerprintProcessor(randomAlphaOfLength(10), null, "fingerprint",
+                FingerprintProcessor.Method.UUID, true, false, false);
+        Map<String, Object> document = new HashMap<>();
+        IngestDocument doc1 = RandomDocumentPicks.randomIngestDocument(random(), document);
+        doc1 = processor.execute(doc1);
+        assertNotNull(doc1.getFieldValue("fingerprint", String.class));
+        IngestDocument doc2 = RandomDocumentPicks.randomIngestDocument(random(), document);
+        doc2 = processor.execute(doc2);
+        assertNotNull(doc2.getFieldValue("fingerprint", String.class));
+        assertNotSame(doc1.getFieldValue("fingerprint", String.class), doc2.getFieldValue("fingerprint", String.class));
     }
 
     public void testMD5Base64() {
@@ -116,13 +146,31 @@ public class FingerprintProcessorTests extends ESTestCase {
         IngestDocument newDoc = processor.execute(oldDoc);
         assertEquals("uFrwiqZ04cxCoqZOuTztSg==", newDoc.getFieldValue("fingerprint", String.class));
 
-        // Changing meta-field 'id' and fingerprint will also be changed
-        oldDoc = new IngestDocument("my_index", null, "1", null, null, null, document);
+        // changing the meta-field 'id' will also change the fingerprint
+        oldDoc = new IngestDocument("my_index", "1", null, null, null, null, document);
         newDoc = processor.execute(oldDoc);
-        assertNotEquals("XAT5+Ih2t2i6exqpH0fo9w==", newDoc.getFieldValue("fingerprint", String.class));
+        assertEquals("Fvxl9blE/9dAhQq/y5YssA==", newDoc.getFieldValue("fingerprint", String.class));
     }
 
-    public void testIgnoreMissing() throws Exception {
+    public void testMissingFieldThrowException() {
+        Set<String> fields = new HashSet<>();
+        fields.add("_field1");
+        fields.add("_field2");
+        processor = new FingerprintProcessor(randomAlphaOfLength(10), fields, "fingerprint",
+                FingerprintProcessor.Method.MD5, true, false, false);
+        Map<String, Object> document = new HashMap<>();
+        document.put("_field1", "test content");
+        IngestDocument doc1 = RandomDocumentPicks.randomIngestDocument(random(), document);
+        Exception exception = expectThrows(java.lang.IllegalArgumentException.class, () -> processor.execute(doc1));
+        assertThat(exception.getMessage(), equalTo("field [_field2] not present as part of path [_field2]"));
+
+        document.put("_field2", null);
+        IngestDocument doc2 = RandomDocumentPicks.randomIngestDocument(random(), document);
+        exception = expectThrows(java.lang.IllegalArgumentException.class, () -> processor.execute(doc2));
+        assertThat(exception.getMessage(), equalTo("field [_field2] is null, cannot generate fingerprint from it."));
+    }
+
+    public void testMissingSomeFields() {
         Set<String> fields = new HashSet<>();
         fields.add("_field");
         fields.add("_field2");
@@ -135,27 +183,20 @@ public class FingerprintProcessorTests extends ESTestCase {
         assertEquals("oKADdn695kK02QjvdBfY5Q==", newDoc.getFieldValue("fingerprint", String.class));
     }
 
-    public void testNullValueWithoutIgnoreMissing() throws Exception {
+    public void testIgnoreMissingAllFields() {
         Set<String> fields = new HashSet<>();
         fields.add("_field");
+        fields.add("_field2");
         processor = new FingerprintProcessor(randomAlphaOfLength(10), fields, "fingerprint",
-                FingerprintProcessor.Method.MD5, false, false, false);
+                FingerprintProcessor.Method.MD5, true, false, true);
         Map<String, Object> document = new HashMap<>();
-        document.put("_field", null);
-        IngestDocument ingestDocument = RandomDocumentPicks.randomIngestDocument(random(), document);
-        Exception exception = expectThrows(IllegalArgumentException.class, () -> processor.execute(ingestDocument));
-        assertThat(exception.getMessage(), equalTo("field [_field] is null, cannot generate fingerprint from it."));
-    }
-
-    public void testNonExistedFieldWithoutIgnoreMissing() throws Exception {
-        Set<String> fields = new HashSet<>();
-        fields.add("_field");
-        processor = new FingerprintProcessor(randomAlphaOfLength(10), fields, "fingerprint",
-                FingerprintProcessor.Method.MD5, false, false, false);
-        Map<String, Object> document = new HashMap<>();
-        IngestDocument ingestDocument = RandomDocumentPicks.randomIngestDocument(random(), document);
-        Exception exception = expectThrows(IllegalArgumentException.class, () -> processor.execute(ingestDocument));
-        assertThat(exception.getMessage(), equalTo("field [_field] not present as part of path [_field]"));
+        document.put("_field3", "test content");
+        IngestDocument oldDoc = RandomDocumentPicks.randomIngestDocument(random(), document);
+        IngestDocument newDoc = new IngestDocument(processor.execute(oldDoc));
+        assertEquals(oldDoc, newDoc);
+        Exception exception = expectThrows(java.lang.IllegalArgumentException.class,
+                () -> newDoc.getFieldValue("fingerprint", String.class));
+        assertThat(exception.getMessage(), equalTo("field [fingerprint] not present as part of path [fingerprint]"));
     }
 
 }

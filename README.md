@@ -12,7 +12,7 @@ Idea derived from this [issue](https://github.com/elastic/elasticsearch/issues/5
 ## Installation
 
 ```
-bin/elasticsearch-plugin install file:///path/to/your/ingest-fingerprint-X.X.X-SNAPSHOT.zip
+bin/elasticsearch-plugin install file:///path/to/your/ingest-fingerprint-X.X.X.X.zip
 ```
 
 
@@ -21,16 +21,16 @@ bin/elasticsearch-plugin install file:///path/to/your/ingest-fingerprint-X.X.X-S
 
 
 
-### Parameter
+### **options**
 
 | **Name**                   | **Required** | **Default** | **Description**                                              |
 | -------------------------- | ------------ | ----------- | ------------------------------------------------------------ |
-| **fields**                 | Yes          | -           | List of fields whose name and value will be used to calc hash value. |
-| **target_field**           | No           | fingerprint | The field to assign the hash value to.                       |
-| **method**                 | No           | MD5         | The hash methods, one of ["SHA1", "SHA256", "SHA512", "MD5", "MURMUR3" "UUID"] |
-| **base64_encode**          | No           | false       | Using base64 encoding for fingerprint.                       |
-| **concatenate_all_fields** | No           | false       | When set to true and method isn’t UUID, the plugin concatenates the names and values of all document fields including source and meta fields into one string and uses it to compute fingerprint. |
-| **ignore_missing**         | No           | false       | If true and some of "fields" does not exist, the processor won't use them to compute fingerprint. If all is missing, the processor will exit quietly without modifing the document. |
+| **fields**                 | No           | -           | List of fields are used to compute fingerprint if `method` isn't `UUID` |
+| **target_field**           | No           | fingerprint | The field to assign  the fingerprint to                      |
+| **method**                 | No           | MD5         | The hash method, one of [`SHA1`, `SHA256`, `SHA512`, `MD5`, `MURMUR3` `UUID`] |
+| **base64_encode**          | No           | false       | Using base64 encoding for fingerprint                        |
+| **concatenate_all_fields** | No           | false       | If true and `method` isn’t `UUID`, the processor concatenates all fields into one string and uses it to compute fingerprint |
+| **ignore_missing**         | No           | false       | If true and some of `fields` does not exist, the processor use the rest of `fields` to compute fingerprint. If all is missing, the processor just quietly exits without modifying the document |
 
 ### Example
 

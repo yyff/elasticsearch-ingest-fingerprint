@@ -83,6 +83,11 @@ public final class FingerprintProcessor extends AbstractProcessor {
 
     @Override
     public IngestDocument execute(IngestDocument ingestDocument) {
+        if (method.equals(Method.UUID)) {
+            // Generating UUID doesn't rely on document
+            ingestDocument.setFieldValue(targetField, UUIDs.base64UUID());
+            return ingestDocument;
+        }
         // Get content from document that is used to generate fingerprint.
         byte[] content;
         if (concatenateAllFields) {
@@ -125,22 +130,14 @@ public final class FingerprintProcessor extends AbstractProcessor {
             System.arraycopy(Numbers.longToBytes(h.h1), 0, digest, 0, 8);
             System.arraycopy(Numbers.longToBytes(h.h2), 0, digest, 8, 8);
             break;
-        case UUID:
-            // Generating UUID doesn't rely on content
-            digest = new byte[0];
-            break;
         default:
             throw new IllegalArgumentException("Invalid method: " + method.toString());
         }
         String targetValue;
-        if (method == Method.UUID) {
-            targetValue = UUIDs.base64UUID();
+        if (base64Encode) {
+            targetValue = Base64.getEncoder().encodeToString(digest);
         } else {
-            if (base64Encode) {
-                targetValue = Base64.getEncoder().encodeToString(digest);
-            } else {
-                targetValue = MessageDigests.toHexString(digest);
-            }
+            targetValue = MessageDigests.toHexString(digest);
         }
         // Set generated fingerprint to target field
         ingestDocument.setFieldValue(targetField, targetValue);
@@ -168,7 +165,7 @@ public final class FingerprintProcessor extends AbstractProcessor {
     public static final class Factory implements Processor.Factory {
         @Override
         public FingerprintProcessor create(Map<String, Processor.Factory> registry, String processorTag,
-                Map<String, Object> config) throws Exception {
+                Map<String, Object> config) {
             List<String> fields = readOptionalList(TYPE, processorTag, config, "fields");
             String targetField = readStringProperty(TYPE, processorTag, config, "target_field", "fingerprint");
             String method = readStringProperty(TYPE, processorTag, config, "method", "MD5");
@@ -176,25 +173,38 @@ public final class FingerprintProcessor extends AbstractProcessor {
             boolean concatenateAllFields = readBooleanProperty(TYPE, processorTag, config, "concatenate_all_fields",
                     false);
             boolean ignoreMissing = readBooleanProperty(TYPE, processorTag, config, "ignore_missing", false);
-            if ((fields == null || fields.size() == 0) && !concatenateAllFields) {
-                throw newConfigurationException(TYPE, processorTag, "fields",
-                        "can't be empty when 'concatenateAllFields' is false");
-            }
-            Set<String> fieldsSet = new HashSet<>();
-            if (!concatenateAllFields) {
-                for (String field : fields) {
-                    fieldsSet.add(field);
-                }
-            }
 
             Method m;
             try {
                 m = Method.parse(method);
             } catch (Exception e) {
                 throw newConfigurationException(TYPE, processorTag, "method",
-                        "illegal method option [" + method + "]. valid values are " + Arrays.toString(Method.values()));
+                        "illegal value [" + method + "]. Valid values are " + Arrays.toString(Method.values()));
             }
 
+            if (m.equals(Method.UUID)) {
+                if (fields != null || concatenateAllFields) {
+                    throw newConfigurationException(TYPE, processorTag, "method",
+                            "is [" + method + "], [fields] or [concatenate_all_fields] must not be set");
+                }
+            } else {
+                if (fields == null && !concatenateAllFields) {
+                    throw newConfigurationException(TYPE, processorTag, "method",
+                            "is [" + method + "], one of [fields] and [concatenate_all_fields] must be set");
+                }
+                if (fields != null && concatenateAllFields) {
+                    throw newConfigurationException(TYPE, processorTag, "fields",
+                            "can not be set when [concatenate_all_fields] is true");
+                }
+                if (fields != null && fields.isEmpty()) {
+                    throw newConfigurationException(TYPE, processorTag, "fields", "can not be empty");
+                }
+            }
+
+            Set<String> fieldsSet = new HashSet<>();
+            if (fields != null) {
+                fieldsSet.addAll(fields);
+            }
             return new FingerprintProcessor(processorTag, fieldsSet, targetField, m, base64encode, concatenateAllFields,
                     ignoreMissing);
         }
